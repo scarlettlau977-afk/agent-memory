@@ -1,0 +1,2 @@
+# Optional real LLM provider. The default local EchoLLM needs no dependency.
+# openai>=1.0.0

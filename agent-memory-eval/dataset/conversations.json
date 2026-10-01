@@ -1,0 +1,9 @@
+[
+  {
+    "id": "basic-follow-up",
+    "turns": [
+      {"user": "My favorite color is blue.", "expected_contains": "blue"},
+      {"user": "What is my favorite color?", "expected_contains": "blue"}
+    ]
+  }
+]
