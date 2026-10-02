@@ -1,9 +1,16 @@
-[
-  {
-    "id": "basic-follow-up",
-    "turns": [
-      {"user": "My favorite color is blue.", "expected_contains": "blue"},
-      {"user": "What is my favorite color?", "expected_contains": "blue"}
-    ]
-  }
-]
+{
+  "id": "programming-language-preference",
+  "turns": [
+    {"user": "My name is Alice."},
+    {"user": "I am a computer science student."},
+    {"user": "I prefer Python to Java."},
+    {
+      "user": "What programming language does the user prefer?",
+      "ground_truth": "Python",
+      "expected": {
+        "no_memory": "I don't know.",
+        "full_history": "Python"
+      }
+    }
+  ]
+}

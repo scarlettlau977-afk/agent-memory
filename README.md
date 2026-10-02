@@ -9,6 +9,7 @@
 - 提供过期清理、隐私删除、用户隔离及访问统计。
 - 提供 construction、retrieval 和 downstream 三类评估指标。
 - agent-memory-eval/ 包含最小 Agent，用于直观比较无记忆和完整历史两种模式。
+- 第二阶段实验提供确定性偏好问答基线、错误归因和 JSON 结果输出。
 
 ## 安装
 
@@ -42,6 +43,8 @@
     python agent-memory-eval\experiments\baseline.py
 
 评估数据位于 agent-memory-eval/dataset/conversations.json。该子项目默认使用本地 EchoLLM，不需要 API Key；可选的 OpenAI-compatible 适配器会延迟导入 openai，凭据应通过环境变量提供，切勿提交到仓库。
+
+实验结果默认写入 agent-memory-eval/experiments/results/baseline_results.json。该结果用于验证记忆链路，不代表真实模型性能。
 
 ## 评估指标
 

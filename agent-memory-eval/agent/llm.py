@@ -4,9 +4,15 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any, Iterable
 
+from .prompt import build_messages, format_memories
+
 
 class LLM(ABC):
     """Small provider-neutral LLM interface used by the agent."""
+
+    def build_prompt(self, *, user_message: str, memories) -> list[dict[str, str]]:
+        """Build the provider-neutral prompt consumed by ``generate``."""
+        return build_messages(user_message, context=format_memories(memories))
 
     @abstractmethod
     def generate(self, messages: Iterable[dict[str, str]]) -> str:

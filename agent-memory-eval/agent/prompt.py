@@ -6,6 +6,21 @@ SYSTEM_PROMPT = (
 )
 
 
+def format_memories(memories) -> str:
+    lines = []
+    for memory in memories:
+        if isinstance(memory, dict):
+            lines.append(f"User: {memory.get('user', '')}\nAssistant: {memory.get('assistant', '')}")
+        else:
+            user = getattr(memory, "user", None)
+            assistant = getattr(memory, "assistant", None)
+            if user is not None or assistant is not None:
+                lines.append(f"User: {user or ''}\nAssistant: {assistant or ''}")
+            else:
+                lines.append(str(memory))
+    return "\n".join(lines)
+
+
 def build_messages(user_input: str, *, context: str = "") -> list[dict[str, str]]:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}]
     if context:

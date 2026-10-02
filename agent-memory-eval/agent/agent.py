@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from .llm import EchoLLM, LLM
-from .prompt import build_messages
+from .prompt import format_memories
 from memory.base import MemoryBackend, Turn
 from memory.full_history import FullHistoryMemory
 from memory.no_memory import NoMemory
@@ -20,14 +20,31 @@ class AgentConfig:
     mode: AgentMode = AgentMode.NO_MEMORY
 
 
-class MinimalAgent:
-    """One agent implementation shared by all experiments."""
+class Agent:
+    """Memory-independent agent execution loop."""
+
+    def __init__(self, llm: LLM, memory: MemoryBackend):
+        self.llm = llm
+        self.memory = memory
+
+    def run(self, user_message):
+        # Snapshot results before writing the current interaction. This keeps
+        # ``retrieved_memories`` faithful even when a backend returns its live list.
+        memories = list(self.memory.retrieve(user_message))
+        prompt = self.llm.build_prompt(user_message=user_message, memories=memories)
+        answer = self.llm.generate(prompt)
+        self.memory.add({"user": user_message, "assistant": answer})
+        return {"answer": answer, "retrieved_memories": memories}
+
+
+class MinimalAgent(Agent):
+    """Convenience wrapper that selects one of the baseline memory modes."""
 
     def __init__(self, *, llm: LLM | None = None, memory: MemoryBackend | None = None,
                  config: AgentConfig | None = None):
         self.llm = llm or EchoLLM()
         self.config = config or AgentConfig()
-        self.memory = memory or self._memory_for_mode(self.config.mode)
+        super().__init__(self.llm, memory or self._memory_for_mode(self.config.mode))
 
     @staticmethod
     def _memory_for_mode(mode: AgentMode) -> MemoryBackend:
@@ -44,23 +61,11 @@ class MinimalAgent:
         return self.config.mode
 
     def chat(self, user_input: str) -> str:
-        interactions = self.memory.retrieve(user_input, top_k=10_000)
-        context = self._format_context(interactions)
-        response = self.llm.generate(build_messages(user_input, context=context))
-        self.memory.add(Turn(user=user_input, assistant=response))
-        return response
+        return self.run(user_input)["answer"]
 
     @staticmethod
     def _format_context(interactions: list) -> str:
-        lines = []
-        for interaction in interactions:
-            if isinstance(interaction, Turn):
-                lines.append(f"User: {interaction.user}\nAssistant: {interaction.assistant}")
-            elif isinstance(interaction, dict):
-                lines.append(f"User: {interaction.get('user', '')}\nAssistant: {interaction.get('assistant', '')}")
-            else:
-                lines.append(str(interaction))
-        return "\n".join(lines)
+        return format_memories(interactions)
 
     def reset(self) -> None:
         self.memory.clear()

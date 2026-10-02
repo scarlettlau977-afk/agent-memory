@@ -1,0 +1,33 @@
+[
+  {
+    "mode": "no_memory",
+    "question": "What programming language does the user prefer?",
+    "ground_truth": "Python",
+    "retrieved_memories": [],
+    "answer": "I don't know.",
+    "correct": false,
+    "diagnosis": "memory_failure"
+  },
+  {
+    "mode": "full_history",
+    "question": "What programming language does the user prefer?",
+    "ground_truth": "Python",
+    "retrieved_memories": [
+      {
+        "user": "My name is Alice.",
+        "assistant": "Got it."
+      },
+      {
+        "user": "I am a computer science student.",
+        "assistant": "Got it."
+      },
+      {
+        "user": "I prefer Python to Java.",
+        "assistant": "Got it."
+      }
+    ],
+    "answer": "Python",
+    "correct": true,
+    "diagnosis": "correct"
+  }
+]

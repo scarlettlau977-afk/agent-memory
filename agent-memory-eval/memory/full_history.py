@@ -4,18 +4,15 @@ from .base import BaseMemory
 
 
 class FullHistoryMemory(BaseMemory):
-    def __init__(self) -> None:
-        self._interactions: list = []
+    def __init__(self):
+        self.history = []
 
-    def add(self, interaction) -> None:
-        self._interactions.append(interaction)
+    def add(self, interaction):
+        self.history.append(interaction)
 
-    def retrieve(self, query, top_k=5) -> list:
-        # Full History deliberately does no relevance filtering. It returns the
-        # most recent interactions, bounded by top_k for safety.
-        if top_k <= 0:
-            return []
-        return list(self._interactions[-top_k:])
+    def retrieve(self, query, top_k=5):
+        # Deliberately ignore query and top_k: this baseline returns everything.
+        return self.history
 
-    def clear(self) -> None:
-        self._interactions.clear()
+    def clear(self):
+        self.history = []
