@@ -12,10 +12,18 @@ from .evaluation import (
     evaluate_downstream,
     evaluate_retrieval,
 )
+from .construction import (
+    ConstructionCandidate, ConstructionDecision, ConstructionExperiment,
+    ConstructionPolicy, ExplicitOnlyPolicy, HeuristicConstructionPolicy,
+    QualityAwarePolicy, QualityConfig, StoreAllPolicy, estimate_tokens,
+)
 
 __all__ = [
     "AgentMemory", "Memory", "MemoryDecision", "MemoryTier", "SearchResult",
     "MemoryPolicy", "HeuristicMemoryPolicy", "MemoryStore", "InMemoryStore",
     "ConstructionCase", "RetrievalCase", "EvaluationReport",
     "evaluate_construction", "evaluate_retrieval", "evaluate_downstream",
+    "ConstructionCandidate", "ConstructionDecision", "ConstructionExperiment",
+    "ConstructionPolicy", "StoreAllPolicy", "HeuristicConstructionPolicy",
+    "ExplicitOnlyPolicy", "QualityAwarePolicy", "QualityConfig", "estimate_tokens",
 ]
