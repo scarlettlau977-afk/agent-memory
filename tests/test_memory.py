@@ -19,3 +19,4 @@ def test_evaluation_reports_construction_and_retrieval():
     _, item = memory.construct("我喜欢跑步", user_id="eval-user", session_id="eval-session")
     retrieval = evaluate_retrieval(memory, [RetrievalCase("喜欢跑步", {item.id})])
     assert retrieval.metrics["recall@k"] == 1.0
+    assert retrieval.metrics["hit_rate@k"] == 1.0

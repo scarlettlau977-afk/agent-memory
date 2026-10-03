@@ -35,6 +35,8 @@
 
     python -m pytest -q
 
+当前测试覆盖核心记忆流程、构建与检索评估、Agent baseline，以及 Recall@K、HitRate@K、MRR 和 nDCG@K 的边界行为。
+
 ## 运行评估示例
 
     $env:PYTHONPATH = "$(Get-Location);$(Join-Path (Get-Location) 'src');$(Join-Path (Get-Location) 'agent-memory-eval')"
@@ -49,8 +51,17 @@
 ## 评估指标
 
 - evaluate_construction：precision、recall、F1 和记忆层路由准确率。
-- evaluate_retrieval：Recall@K、MRR、nDCG@K，并保留每条 query 的返回 ID。
+- evaluate_retrieval：Recall@K、HitRate@K、MRR、nDCG@K，并保留每条 query 的返回 ID。
 - evaluate_downstream：比较有记忆与无记忆上下文的平均任务得分增益。
+
+### Retrieval 指标定义
+
+- `Recall@K` 是 Top K 中命中的唯一相关记忆数量除以该查询全部相关记忆数量；例如 4 条相关记忆中命中 1 条时，`Recall@3 = 0.25`。
+- `HitRate@K` 只表示 Top K 是否至少命中一条相关记忆；同一例子的 `HitRate@3 = 1.0`。它与 Recall@K 是两个独立指标。
+- `MRR` 对每条查询取第一条相关结果排名的倒数，再对查询做算术平均；Top K 内没有命中时该查询为 0。
+- `nDCG@K` 使用二元相关性和排名折扣衡量排序质量，理想排序为 1.0。
+- 相关集合为空时，单查询 Recall 未定义并记为 `null`，宏平均 Recall 排除该查询并记录 `recall_defined_query_count`；HitRate、MRR 和 nDCG 记为 0.0。
+- 结果按已有 memory ID 匹配，重复 ID 只计一次，`top_k` 必须是正整数。
 
 ## 项目结构
 
@@ -60,4 +71,4 @@
 
 ## 许可证
 
-当前仓库未指定许可证。如需公开复用，请在发布前补充合适的 LICENSE 文件，
+当前仓库未指定许可证。如需公开复用，请在发布前补充合适的 LICENSE 文件。
