@@ -37,19 +37,35 @@ def evaluate_construction(policy_or_memory: Any, cases: Iterable[ConstructionCas
     policy = getattr(policy_or_memory, "policy", policy_or_memory)
     details, tp, fp, fn, tier_ok, tier_total = [], 0, 0, 0, 0, 0
     for case in cases:
-        decision = policy.decide(case.content, user_id=case.user_id, session_id=case.session_id, metadata=case.metadata)
-        if decision.should_remember and case.should_remember: tp += 1
-        elif decision.should_remember: fp += 1
-        elif case.should_remember: fn += 1
+        decision = policy.decide(
+            case.content,
+            user_id=case.user_id,
+            session_id=case.session_id,
+            metadata=case.metadata,
+        )
+        if decision.should_remember and case.should_remember:
+            tp += 1
+        elif decision.should_remember:
+            fp += 1
+        elif case.should_remember:
+            fn += 1
         if case.should_remember and decision.should_remember and case.tier is not None:
-            tier_total += 1; tier_ok += int(decision.tier == case.tier)
-        details.append({"content": case.content, "expected": case.should_remember, "predicted": decision.should_remember,
-                        "predicted_tier": decision.tier.value if decision.tier else None})
+            tier_total += 1
+            tier_ok += int(decision.tier == case.tier)
+        details.append(
+            {
+                "content": case.content,
+                "expected": case.should_remember,
+                "predicted": decision.should_remember,
+                "predicted_tier": decision.tier.value if decision.tier else None,
+            }
+        )
     precision = tp / (tp + fp) if tp + fp else 0.0
     recall = tp / (tp + fn) if tp + fn else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    tier_accuracy = tier_ok / tier_total if tier_total else 0.0
     return EvaluationReport({"precision": precision, "recall": recall,
-                             "f1": 2 * precision * recall / (precision + recall) if precision + recall else 0.0,
-                             "tier_accuracy": tier_ok / tier_total if tier_total else 0.0}, details)
+                             "f1": f1, "tier_accuracy": tier_accuracy}, details)
 
 
 def _stable_id(value: Any) -> str:

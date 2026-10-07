@@ -29,6 +29,16 @@ def test_quality_score_is_deterministic_and_duplicate_is_rejected():
     ]
 
 
+def test_duplicate_check_does_not_cross_user_boundaries():
+    items = [
+        ConstructionCandidate("a", "c", "user-a", "I prefer Python", should_store=True),
+        ConstructionCandidate("b", "c", "user-b", "I prefer Python", should_store=True),
+    ]
+    decisions = ConstructionExperiment(items, [QualityAwarePolicy()]).run()["strategies"]["quality_aware"]["decisions"]
+    assert all(decision.predicted_should_store for decision in decisions)
+    assert not decisions[1].duplicate_detected
+
+
 def test_labels_are_not_counted_when_unannotated_and_tokens_are_stable():
     items = [candidate("hello", should_store=None), candidate("中文 Python")]
     result = ConstructionExperiment(items, [StoreAllPolicy()]).run()["strategies"]["store_all"]["metrics"]

@@ -14,7 +14,7 @@ class AgentMemory:
     def __init__(self, *, policy: MemoryPolicy | None = None,
                  stores: dict[MemoryTier, MemoryStore] | None = None):
         self.policy = policy or HeuristicMemoryPolicy()
-        self.stores = stores or {
+        self.stores = stores if stores is not None else {
             MemoryTier.SHORT_TERM: InMemoryStore("short_term", MemoryTier.SHORT_TERM),
             MemoryTier.LONG_TERM: InMemoryStore("long_term", MemoryTier.LONG_TERM),
         }
@@ -23,15 +23,27 @@ class AgentMemory:
                   metadata: dict[str, Any] | None = None, tags: list[str] | None = None,
                   importance: float | None = None) -> tuple[MemoryDecision, Memory | None]:
         metadata = dict(metadata or {})
-        decision = self.policy.decide(content, user_id=user_id, session_id=session_id, metadata=metadata)
+        decision = self.policy.decide(
+            content,
+            user_id=user_id,
+            session_id=session_id,
+            metadata=metadata,
+        )
         if not decision.should_remember or decision.tier is None:
             return decision, None
         now = utc_now()
         expires = now + timedelta(seconds=decision.ttl_seconds) if decision.ttl_seconds else None
-        memory = Memory(content=content, user_id=user_id, session_id=session_id, tier=decision.tier,
-                        importance=importance if importance is not None else decision.score,
-                        confidence=metadata.pop("confidence", 1.0), tags=tags or [], metadata=metadata,
-                        expires_at=expires)
+        memory = Memory(
+            content=content,
+            user_id=user_id,
+            session_id=session_id,
+            tier=decision.tier,
+            importance=importance if importance is not None else decision.score,
+            confidence=metadata.pop("confidence", 1.0),
+            tags=list(tags or []),
+            metadata=metadata,
+            expires_at=expires,
+        )
         self.stores[decision.tier].put(memory)
         return decision, memory
 
@@ -41,8 +53,15 @@ class AgentMemory:
         selected = list(tiers) if tiers is not None else list(self.stores)
         results: list[SearchResult] = []
         for tier in selected:
-            results.extend(self.stores[tier].search(query, user_id=user_id, session_id=session_id,
-                                                    top_k=top_k, filters=filters))
+            results.extend(
+                self.stores[tier].search(
+                    query,
+                    user_id=user_id,
+                    session_id=session_id,
+                    top_k=top_k,
+                    filters=filters,
+                )
+            )
         results.sort(key=lambda item: item.score, reverse=True)
         for result in results[:top_k]:
             result.memory.last_accessed_at = utc_now()

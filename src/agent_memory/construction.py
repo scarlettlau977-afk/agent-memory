@@ -11,7 +11,11 @@ from .stores import InMemoryStore
 
 
 def estimate_tokens(text: str) -> int:
-    """Deterministic estimate: ASCII words/numbers plus individual CJK chars."""
+    """Estimate token count consistently without relying on a model tokenizer.
+
+    ASCII words and numbers count as one token each. CJK characters are counted
+    individually. This is a comparison-friendly estimate, not billing data.
+    """
     return len(re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]", text))
 
 
@@ -49,29 +53,44 @@ class ConstructionDecision:
     is_update_or_conflict: bool
 
 
+DecisionTuple = tuple[bool, MemoryTier | None, float | None, str]
+
+
 class ConstructionPolicy(ABC):
     name: str
 
     @abstractmethod
-    def decide(self, candidate: ConstructionCandidate, *, store: InMemoryStore) -> tuple[bool, MemoryTier | None, float | None, str]: ...
+    def decide(
+        self,
+        candidate: ConstructionCandidate,
+        *,
+        store: InMemoryStore,
+    ) -> DecisionTuple:
+        """Decide whether a candidate should be stored and in which tier."""
+        ...
 
 
 def _fallback_tier(candidate: ConstructionCandidate) -> MemoryTier:
     text = candidate.text.lower()
-    if candidate.explicit_memory_request or any(x in text for x in ("remember", "记住", "preference", "偏好", "我喜欢", "我叫")):
+    durable_markers = ("remember", "记住", "preference", "偏好", "我喜欢", "我叫")
+    if candidate.explicit_memory_request or any(marker in text for marker in durable_markers):
         return MemoryTier.LONG_TERM
     return MemoryTier.SHORT_TERM
 
 
 def _duplicate(candidate: ConstructionCandidate, store: InMemoryStore) -> bool:
     normalized = re.sub(r"\s+", "", candidate.text).lower()
-    return any(re.sub(r"\s+", "", item.content).lower() == normalized for item in store.all())
+    return any(
+        item.user_id == candidate.user_id
+        and re.sub(r"\s+", "", item.content).lower() == normalized
+        for item in store.all()
+    )
 
 
 class StoreAllPolicy(ConstructionPolicy):
     name = "store_all"
 
-    def decide(self, candidate, *, store):
+    def decide(self, candidate: ConstructionCandidate, *, store: InMemoryStore) -> DecisionTuple:
         if not candidate.text.strip():
             return False, None, 0.0, "empty candidate"
         return True, _fallback_tier(candidate), 1.0, "store every non-empty candidate"
@@ -83,7 +102,7 @@ class HeuristicConstructionPolicy(ConstructionPolicy):
     def __init__(self):
         self._policy = HeuristicMemoryPolicy()
 
-    def decide(self, candidate, *, store):
+    def decide(self, candidate: ConstructionCandidate, *, store: InMemoryStore) -> DecisionTuple:
         decision = self._policy.decide(candidate.text, user_id=candidate.user_id,
                                        session_id=candidate.session_id, metadata=candidate.metadata)
         return decision.should_remember, decision.tier, decision.score, decision.rationale
@@ -94,7 +113,7 @@ class ExplicitOnlyPolicy(ConstructionPolicy):
 
     _markers = ("请记住", "请牢记", "以后记住", "remember that", "please remember", "remember my")
 
-    def decide(self, candidate, *, store):
+    def decide(self, candidate: ConstructionCandidate, *, store: InMemoryStore) -> DecisionTuple:
         text = candidate.text.strip().lower()
         explicit = candidate.explicit_memory_request or any(marker in text for marker in self._markers)
         if explicit:
@@ -118,26 +137,42 @@ class QualityAwarePolicy(ConstructionPolicy):
     def __init__(self, config: QualityConfig | None = None):
         self.config = config or QualityConfig()
 
+    UTILITY_MARKERS = ("我叫", "我的", "我喜欢", "偏好", "目标", "prefer", "my name")
+    TEMPORARY_MARKERS = ("今天", "当前", "这次", "暂时", "临时", "for now", "today")
+
     @staticmethod
     def _utility(text: str) -> float:
-        return 0.9 if any(x in text.lower() for x in ("我叫", "我的", "我喜欢", "偏好", "目标", "prefer", "my name")) else (0.65 if len(text) >= 16 else 0.25)
+        lowered = text.lower()
+        if any(marker in lowered for marker in QualityAwarePolicy.UTILITY_MARKERS):
+            return 0.9
+        return 0.65 if len(text) >= 16 else 0.25
 
     @staticmethod
     def _stability(text: str) -> float:
-        return 0.15 if any(x in text.lower() for x in ("今天", "当前", "这次", "暂时", "临时", "for now", "today")) else 0.8
+        lowered = text.lower()
+        if any(marker in lowered for marker in QualityAwarePolicy.TEMPORARY_MARKERS):
+            return 0.15
+        return 0.8
 
-    def decide(self, candidate, *, store):
+    def decide(self, candidate: ConstructionCandidate, *, store: InMemoryStore) -> DecisionTuple:
         text = candidate.text.strip()
         if not text:
             return False, None, 0.0, "empty candidate"
         duplicate = _duplicate(candidate, store)
         utility = self._utility(text)
         stability = self._stability(text)
-        explicit = 1.0 if candidate.explicit_memory_request or any(x in text.lower() for x in ExplicitOnlyPolicy._markers) else 0.0
+        explicit = float(
+            candidate.explicit_memory_request
+            or any(marker in text.lower() for marker in ExplicitOnlyPolicy._markers)
+        )
         redundancy = 1.0 if duplicate else 0.0
         c = self.config
         score = c.utility_weight * utility + c.stability_weight * stability + c.explicit_weight * explicit - c.redundancy_weight * redundancy
-        if duplicate and not candidate.is_update_or_conflict:
+        # The update/conflict flag is evaluation-only annotation. Detect a
+        # likely replacement from the candidate text instead of consulting it.
+        update_markers = ("no longer", "instead", "now prefer", "改为", "不再", "更新为")
+        looks_like_update = any(marker in text.lower() for marker in update_markers)
+        if duplicate and not looks_like_update:
             return False, None, round(score, 6), "duplicate candidate rejected"
         if score < c.threshold:
             return False, None, round(score, 6), "quality score below threshold"
@@ -157,7 +192,16 @@ def _safe_div(n: float, d: float) -> float:
     return n / d if d else 0.0
 
 
-def evaluate_decisions(candidates: list[ConstructionCandidate], decisions: list[ConstructionDecision], *, store_all_saved: int) -> dict[str, Any]:
+def evaluate_decisions(
+    candidates: list[ConstructionCandidate],
+    decisions: list[ConstructionDecision],
+    *,
+    store_all_saved: int,
+) -> dict[str, Any]:
+    """Calculate storage, decision, routing, and token-cost metrics."""
+    if len(candidates) != len(decisions):
+        raise ValueError("candidates and decisions must have the same length")
+
     tp = fp = fn = tn = 0
     eligible_routing = routing_correct = 0
     expected_saved = sum(c.should_store is True for c in candidates)
@@ -184,7 +228,13 @@ def evaluate_decisions(candidates: list[ConstructionCandidate], decisions: list[
     preserved_updates = sum(c.is_update_or_conflict and d.predicted_should_store for c, d in zip(candidates, decisions))
     long_expected = sum(c.should_store is True and c.target_memory_type == "long_term" for c in candidates)
     long_saved = sum(d.predicted_should_store and d.predicted_memory_type == "long_term" for d in decisions)
-    long_tp = sum(c.should_store is True and c.target_memory_type == "long_term" and d.predicted_should_store and d.predicted_memory_type == "long_term" for c, d in zip(candidates, decisions))
+    long_tp = sum(
+        c.should_store is True
+        and c.target_memory_type == "long_term"
+        and d.predicted_should_store
+        and d.predicted_memory_type == "long_term"
+        for c, d in zip(candidates, decisions)
+    )
     tokens = sum(getattr(d, "estimated_tokens", 0) for d in decisions if d.predicted_should_store)
     return {"candidate_count": len(candidates), "saved_count": saved, "rejected_count": len(candidates) - saved,
             "expected_saved_count": expected_saved, "unnecessary_saved_count": unnecessary, "missed_necessary_count": missed,
@@ -202,14 +252,22 @@ def evaluate_decisions(candidates: list[ConstructionCandidate], decisions: list[
 
 
 class ConstructionExperiment:
-    def __init__(self, candidates: Iterable[ConstructionCandidate], policies: Iterable[ConstructionPolicy] | None = None):
+    def __init__(
+        self,
+        candidates: Iterable[ConstructionCandidate],
+        policies: Iterable[ConstructionPolicy] | None = None,
+    ):
         self.candidates = list(candidates)
-        self.policies = list(policies or [StoreAllPolicy(), HeuristicConstructionPolicy(), ExplicitOnlyPolicy(), QualityAwarePolicy()])
+        self.policies = list(policies) if policies is not None else [
+            StoreAllPolicy(),
+            HeuristicConstructionPolicy(),
+            ExplicitOnlyPolicy(),
+            QualityAwarePolicy(),
+        ]
 
     def run(self) -> dict[str, Any]:
         summaries: dict[str, Any] = {}
-        all_decisions: list[ConstructionDecision] = []
-        store_all_saved = len([c for c in self.candidates if c.text.strip()])
+        store_all_saved = sum(bool(candidate.text.strip()) for candidate in self.candidates)
         for policy in self.policies:
             store = InMemoryStore(policy.name)
             decisions = []
@@ -222,10 +280,30 @@ class ConstructionExperiment:
                 stored = ({"id": memory.id, "content": memory.content, "user_id": memory.user_id,
                            "session_id": memory.session_id, "tier": memory.tier.value,
                            "metadata": memory.metadata} if memory else None)
-                decisions.append(ConstructionDecision(policy.name, c.candidate_id, c.conversation_id, save, tier.value if tier else None, rationale, score, memory.id if memory else None, stored, estimate_tokens(c.text), duplicate, c.is_update_or_conflict))
+                decisions.append(
+                    ConstructionDecision(
+                        strategy=policy.name,
+                        candidate_id=c.candidate_id,
+                        conversation_id=c.conversation_id,
+                        predicted_should_store=save,
+                        predicted_memory_type=tier.value if tier else None,
+                        rationale=rationale,
+                        score=score,
+                        stored_memory_id=memory.id if memory else None,
+                        stored_memory=stored,
+                        estimated_tokens=estimate_tokens(c.text),
+                        duplicate_detected=duplicate,
+                        is_update_or_conflict=c.is_update_or_conflict,
+                    )
+                )
             summaries[policy.name] = {"metrics": evaluate_decisions(self.candidates, decisions, store_all_saved=store_all_saved), "decisions": decisions}
-            all_decisions.extend(decisions)
-        return {"dataset": {"candidate_count": len(self.candidates), "annotated_count": sum(c.should_store is not None for c in self.candidates)}, "strategies": summaries}
+        return {
+            "dataset": {
+                "candidate_count": len(self.candidates),
+                "annotated_count": sum(c.should_store is not None for c in self.candidates),
+            },
+            "strategies": summaries,
+        }
 
 
 def candidate_from_dict(item: dict[str, Any]) -> ConstructionCandidate:
